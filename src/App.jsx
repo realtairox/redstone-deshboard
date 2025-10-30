@@ -3,7 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 
-const DEFAULT_SYMBOLS = "BTC,ETH,SOL,AR";
+const DEFAULT_SYMBOLS = "BTC,ETH,SOL,AR,BNB";
 
 // fetch helper: force fresh data every call
 async function jget(path) {
