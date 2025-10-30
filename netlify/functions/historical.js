@@ -1,4 +1,4 @@
-// Tries both RedStone history endpoints and normalizes result to [{timestamp,value}]
+// Tries both RedStone history endpoints and normalizes to [{timestamp,value}]
 function hoursToMs(h) { return h * 3600 * 1000; }
 
 async function fetchJson(url) {
@@ -27,7 +27,7 @@ export async function handler(event) {
     const start = end - hoursToMs(hours);
     const intervalMs = 10 * 60 * 1000; // 10 min
 
-    // First attempt: query-style endpoint
+    // Query-style endpoint
     const q = new URLSearchParams({
       symbol,
       fromTimestamp: String(start),
@@ -44,9 +44,7 @@ export async function handler(event) {
       `?fromTimestamp=${start}&toTimestamp=${end}&interval=${intervalMs}&provider=redstone&ts=${Date.now()}`;
 
     let data = normalize(await fetchJson(url1));
-    if (data.length === 0) {
-      data = normalize(await fetchJson(url2));
-    }
+    if (data.length === 0) data = normalize(await fetchJson(url2));
 
     return {
       statusCode: 200,
