@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 
-const DEFAULT_SYMBOLS = "BTC,ETH,SOL,AR,BNB";
+const DEFAULT_SYMBOLS = "BTC,ETH,SOL,AR";
 
-// fetch helper: force fresh data every call
+// fresh fetch (cache-busted)
 async function jget(path) {
   const bust = path.includes("?") ? "&t=" + Date.now() : "?t=" + Date.now();
   const res = await fetch(path + bust, {
@@ -15,20 +15,25 @@ async function jget(path) {
   if (!res.ok) throw new Error("Network error");
   return res.json();
 }
-const fmt = (n) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 6 }).format(n);
+
+const fmt = (n) =>
+  new Intl.NumberFormat("en-US", { maximumFractionDigits: 6 }).format(n);
 
 export default function App() {
   const [symbols, setSymbols] = useState(DEFAULT_SYMBOLS);
   const [prices, setPrices] = useState({ data: {}, at: 0 });
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState([]);          // points: [{timestamp,value}]
   const [err, setErr] = useState("");
   const [isLive, setIsLive] = useState(false);
+  const [historyMode, setHistoryMode] = useState("api"); // "api" | "local"
+  const localHistoryRef = useRef([]); // keep growing if API empty
 
   const firstSymbol = useMemo(
     () => symbols.split(",")[0]?.trim().toUpperCase() || "BTC",
     [symbols]
   );
 
+  // load spot prices
   const loadPrices = async () => {
     try {
       setErr("");
@@ -37,27 +42,53 @@ export default function App() {
       );
       setPrices(r);
       setIsLive(true);
+
+      // if we're in local history mode, push a new point from the first symbol
+      if (historyMode === "local") {
+        const v = r?.data?.[firstSymbol]?.value ?? null;
+        if (typeof v === "number" && Number.isFinite(v)) {
+          localHistoryRef.current.push({ timestamp: Date.now(), value: v });
+          // keep ~6h window (change to 24h if you want long session)
+          const sixHours = 6 * 3600 * 1000;
+          const cutoff = Date.now() - sixHours;
+          localHistoryRef.current = localHistoryRef.current.filter(p => p.timestamp >= cutoff);
+          setHistory([...localHistoryRef.current]);
+        }
+      }
     } catch (e) {
       setErr(e.message || "Failed to load prices");
       setIsLive(false);
     }
   };
 
+  // load historical (24h) – if empty, fall back to local mode
   const loadHistory = async (sym) => {
     try {
       const r = await jget(
         `/.netlify/functions/historical?symbol=${encodeURIComponent(sym)}&range=24h`
       );
-      setHistory(r.data || []);
-    } catch (_) {}
+      const arr = Array.isArray(r?.data) ? r.data : [];
+      if (arr.length > 0) {
+        setHistory(arr);
+        setHistoryMode("api");
+        localHistoryRef.current = [...arr]; // seed local with api data
+      } else {
+        // fallback: start local accumulation from current price ticks
+        setHistoryMode("local");
+      }
+    } catch {
+      setHistoryMode("local");
+    }
   };
 
-  // initial + 10s interval refresh
+  // initial + interval refresh
   useEffect(() => {
+    // reset local history when symbol changes
+    localHistoryRef.current = [];
     loadPrices();
     loadHistory(firstSymbol);
-    const p = setInterval(loadPrices, 10000);
-    const h = setInterval(() => loadHistory(firstSymbol), 10000);
+    const p = setInterval(loadPrices, 10000);                  // 10s
+    const h = setInterval(() => loadHistory(firstSymbol), 60000); // try api again every 60s
     return () => { clearInterval(p); clearInterval(h); };
   }, [symbols, firstSymbol]);
 
@@ -71,7 +102,9 @@ export default function App() {
       </div>
       <div className="mt-1 text-2xl font-semibold tracking-wide">
         {sym}
-        <span className="text-zinc-400 text-base ml-2">{fmt(Number(obj?.value ?? obj))}</span>
+        <span className="text-zinc-400 text-base ml-2">
+          {fmt(Number(obj?.value ?? obj))}
+        </span>
       </div>
       <div className="text-xs text-zinc-500 mt-1">
         {obj?.timestamp ? new Date(obj.timestamp).toLocaleTimeString() : ""}
@@ -84,7 +117,7 @@ export default function App() {
       <header className="max-w-6xl mx-auto px-4 py-6 text-center md:text-left">
         <h1 className="text-3xl font-bold">RedStone Live Dashboard</h1>
         <p className="text-zinc-400 mt-1">
-          Real-time oracle price feeds (demo) • Deployed on Netlify Functions
+          Real-time oracle price feeds • Auto refresh every 10s
         </p>
         {err && <div className="text-red-400 mt-2">Error: {err}</div>}
       </header>
@@ -114,11 +147,13 @@ export default function App() {
           )}
         </section>
 
-        {/* 24h chart */}
+        {/* 24h chart (API or Local) */}
         <section className="rounded-2xl p-4 bg-zinc-900/80 ring-1 ring-zinc-800">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xl font-semibold">24h Trend • {firstSymbol}</h2>
-            <div className="text-xs text-zinc-400">Data: RedStone</div>
+            <div className="text-xs text-zinc-400">
+              Data: {historyMode === "api" ? "RedStone (API)" : "Live ticks (fallback)"}
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -139,7 +174,7 @@ export default function App() {
             </ResponsiveContainer>
           </div>
           <div className="text-xs text-zinc-500 mt-2">
-            Tip: change the first symbol to switch the chart. Auto refresh: 10s.
+            Tip: change the first symbol to switch the chart. Mode: {historyMode}.
           </div>
         </section>
       </main>
