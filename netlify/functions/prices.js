@@ -5,7 +5,7 @@ export async function handler(event) {
 
     const url = "https://api.redstone.finance/prices?symbols="
       + encodeURIComponent(symbols.join(","))
-      + "&provider=redstone&ts=" + Date.now();
+      + "&provider=redstone&ts=" + Date.now(); // cache-buster
 
     const res = await fetch(url, { cache: "no-store", headers: { "cache-control": "no-cache" } });
     if (!res.ok) throw new Error("RedStone API error");
