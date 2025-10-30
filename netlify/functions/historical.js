@@ -9,22 +9,27 @@ export async function handler(event) {
     const end = Date.now();
     const start = end - hoursToMs(hours);
 
-    const params = new URLSearchParams({
-      symbol, fromTimestamp: String(start), toTimestamp: String(end),
-      interval: String(10 * 60 * 1000), ts: String(Date.now())
-    });
+    const url = `https://api.redstone.finance/prices/history/${symbol}?fromTimestamp=${start}&toTimestamp=${end}&interval=600000&provider=redstone&ts=${Date.now()}`;
 
-    const url = "https://api.redstone.finance/prices/history?" + params.toString();
-    const res = await fetch(url, { cache: "no-store", headers: { "cache-control": "no-cache" } });
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: { "cache-control": "no-cache" },
+    });
     if (!res.ok) throw new Error("RedStone history API error");
+
     const arr = await res.json();
+
+    const data = (Array.isArray(arr) ? arr : []).map(d => ({
+      timestamp: d.timestamp,
+      value: d.value
+    }));
 
     return {
       statusCode: 200,
       headers: { "content-type": "application/json", "cache-control": "no-store" },
-      body: JSON.stringify({ data: Array.isArray(arr) ? arr : [] })
+      body: JSON.stringify({ data })
     };
   } catch (err) {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
-}
+      }
 }
