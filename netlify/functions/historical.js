@@ -1,38 +1,29 @@
-// Netlify Function: historical
-import redstone from 'redstone-api';
-
-function rangeToHours(range) {
-  if (!range) return 24;
-  if (range.endsWith('h')) return parseInt(range) || 24;
-  if (range.endsWith('d')) return (parseInt(range) || 1) * 24;
-  return 24;
-}
+// Fetch 24h history from RedStone REST (no npm package)
+function hoursToMs(h) { return h * 3600 * 1000; }
 
 export async function handler(event) {
   try {
-    const symbol = event.queryStringParameters?.symbol || 'BTC';
-    const range = rangeToHours(event.queryStringParameters?.range || '24h');
+    const symbol = (event.queryStringParameters?.symbol || "BTC").toUpperCase();
+    const range = event.queryStringParameters?.range || "24h";
+    const hours = range.endsWith("d") ? (parseInt(range) || 1) * 24 : (parseInt(range) || 24);
 
-    const end = new Date();
-    const start = new Date(end.getTime() - range * 3600 * 1000);
-
-    const series = await redstone.getHistoricalPrice(symbol, {
-      startDate: start.toISOString(),
-      endDate: end.toISOString(),
-      interval: 10 * 60 * 1000 // 10-minute interval
+    const end = Date.now();
+    const start = end - hoursToMs(hours);
+    const params = new URLSearchParams({
+      symbol,
+      fromTimestamp: String(start),
+      toTimestamp: String(end),
+      interval: String(10 * 60 * 1000) // 10 minutes
     });
 
-    const data = (series || []).map(p => ({ value: p.value, timestamp: p.timestamp }));
+    const url = "https://api.redstone.finance/prices/history?" + params.toString();
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("RedStone history API error");
+    const arr = await res.json();
 
-    return {
-      statusCode: 200,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ data })
-    };
+    const data = Array.isArray(arr) ? arr.map(p => ({ value: p.value, timestamp: p.timestamp })) : [];
+    return { statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ data }) };
   } catch (err) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err?.message || 'Failed to fetch history' })
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: err.message || "Failed to fetch history" }) };
   }
-      }
+}
