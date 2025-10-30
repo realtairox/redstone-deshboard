@@ -1,147 +1,79 @@
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-} from "recharts";
-
-const DEFAULT_SYMBOLS = "BTC,ETH,SOL,AR";
+import React, { useEffect, useState } from "react";
+import "./index.css";
 
 async function jget(path) {
-  const res = await fetch(path);
+  const res = await fetch(`${path}${path.includes("?") ? "&" : "?"}t=${Date.now()}`, {
+    cache: "no-store",
+    headers: { "cache-control": "no-cache" },
+  });
   if (!res.ok) throw new Error("Network error");
   return res.json();
 }
-const fmt = n => new Intl.NumberFormat("en-US", { maximumFractionDigits: 6 }).format(n);
 
 export default function App() {
-  const [symbols, setSymbols] = useState(DEFAULT_SYMBOLS);
-  const [prices, setPrices] = useState({ data: {}, at: 0 });
-  const [history, setHistory] = useState([]);
-  const [err, setErr] = useState("");
-  const [isLive, setIsLive] = useState(false);
+  const [data, setData] = useState({});
+  const [time, setTime] = useState("");
+  const [error, setError] = useState("");
+  const [trend, setTrend] = useState([]);
 
-  const firstSymbol = useMemo(
-    () => symbols.split(",")[0]?.trim().toUpperCase() || "BTC",
-    [symbols]
-  );
-
-  // load current prices
-  const loadPrices = async () => {
+  async function load() {
     try {
-      setErr("");
-      const r = await jget(
-        `/.netlify/functions/prices?symbols=${encodeURIComponent(symbols)}`
-      );
-      setPrices(r);
-      setIsLive(true);
-    } catch (e) {
-      setErr(e.message || "Failed to load prices");
-      setIsLive(false);
+      setError("");
+      const prices = await jget("/.netlify/functions/prices?symbols=BTC,ETH,SOL,AR");
+      const hist = await jget("/.netlify/functions/historical?symbol=BTC&range=24h");
+      setData(prices.data || {});
+      setTrend(hist.data || []);
+      setTime(new Date().toLocaleTimeString());
+    } catch (err) {
+      setError("Network error");
+      console.error(err);
     }
-  };
+  }
 
-  // load 24h history for firstSymbol
-  const loadHistory = async (sym) => {
-    try {
-      const r = await jget(
-        `/.netlify/functions/historical?symbol=${encodeURIComponent(sym)}&range=24h`
-      );
-      setHistory(r.data || []);
-    } catch (_) {}
-  };
-
-  // initial + interval refresh (10s)
   useEffect(() => {
-    loadPrices();
-    loadHistory(firstSymbol);
-
-    const pricesTimer = setInterval(loadPrices, 10000);       // every 10s
-    const historyTimer = setInterval(() => loadHistory(firstSymbol), 10000);
-    return () => { clearInterval(pricesTimer); clearInterval(historyTimer); };
-  }, [symbols, firstSymbol]);
-
-  const lastUpdated = prices.at ? new Date(prices.at).toLocaleTimeString() : "—";
-
-  const cards = Object.entries(prices.data || {}).map(([sym, obj]) => (
-    <div key={sym} className="rounded-2xl p-4 bg-zinc-900/80 ring-1 ring-zinc-800 shadow">
-      <div className="flex items-center gap-2 text-xs text-zinc-400">
-        <span>USD • RedStone</span>
-        <span className={`inline-block w-2 h-2 rounded-full ${isLive ? "bg-emerald-500" : "bg-zinc-600"}`}/>
-      </div>
-      <div className="mt-1 text-2xl font-semibold tracking-wide">
-        {sym}
-        <span className="text-zinc-400 text-base ml-2">{fmt(obj.value)}</span>
-      </div>
-      <div className="text-xs text-zinc-500 mt-1">
-        {obj.timestamp ? new Date(obj.timestamp).toLocaleTimeString() : ""}
-      </div>
-    </div>
-  ));
+    load();
+    const id = setInterval(load, 10000); // refresh every 10s
+    return () => clearInterval(id);
+  }, []);
 
   return (
-    <div className="min-h-screen text-zinc-100 bg-zinc-950">
-      <header className="max-w-6xl mx-auto px-4 py-6">
-        <h1 className="text-3xl font-bold">RedStone Live Dashboard</h1>
-        <p className="text-zinc-400 mt-1">
-          Real-time oracle price feeds (auto updates every 10s)
-        </p>
-      </header>
+    <div style={{ fontFamily: "sans-serif", background: "#000", color: "#fff", minHeight: "100vh", padding: 20 }}>
+      <h1 style={{ textAlign: "center" }}>RedStone Live Dashboard</h1>
+      <p style={{ textAlign: "center", opacity: 0.7 }}>
+        Real-time oracle price feeds (demo) • Deployed on Netlify Functions
+      </p>
 
-      <main className="max-w-6xl mx-auto px-4 pb-16 space-y-8">
-        {/* Controls */}
-        <section className="flex flex-col md:flex-row gap-3 md:items-center">
-          <input
-            className="w-full md:w-96 rounded-xl bg-zinc-900 px-4 py-3 outline-none ring-1 ring-zinc-800 focus:ring-zinc-600"
-            placeholder="BTC,ETH,SOL,AR"
-            value={symbols}
-            onChange={(e) => setSymbols(e.target.value)}
-          />
-          <button
-            onClick={() => { loadPrices(); loadHistory(firstSymbol); }}
-            className="rounded-xl px-4 py-3 bg-zinc-800 hover:bg-zinc-700 active:scale-[.98] transition"
-          >
-            Refresh
-          </button>
-          <div className="text-sm text-zinc-400">Last update: {lastUpdated}</div>
-        </section>
+      {error && <p style={{ color: "red", textAlign: "center" }}>Error: {error}</p>}
 
-        {/* Price cards */}
-        {err ? (
-          <div className="text-sm text-red-400">Error: {err}</div>
-        ) : (
-          <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {cards}
-          </section>
-        )}
+      <div style={{ display: "grid", gap: 10, marginTop: 20 }}>
+        {Object.entries(data).map(([sym, info]) => (
+          <div key={sym} style={{ background: "#111", padding: 15, borderRadius: 10 }}>
+            <h2>
+              {sym} <span style={{ color: "#0f0" }}>•</span>
+            </h2>
+            <p style={{ fontSize: 18 }}>{info.value?.toFixed?.(6)}</p>
+            <p style={{ fontSize: 12, opacity: 0.7 }}>
+              {new Date(info.timestamp).toLocaleTimeString()}
+            </p>
+          </div>
+        ))}
+      </div>
 
-        {/* 24h chart */}
-        <section className="rounded-2xl p-4 bg-zinc-900/80 ring-1 ring-zinc-800">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-semibold">24h Trend • {firstSymbol}</h2>
-            <div className="text-xs text-zinc-400">Data: RedStone</div>
-          </div>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={history}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="timestamp"
-                  minTickGap={32}
-                  tickFormatter={(t) => new Date(t).toLocaleTimeString()}
-                />
-                <YAxis domain={["auto", "auto"]} />
-                <Tooltip
-                  formatter={(v) => fmt(Number(v))}
-                  labelFormatter={(t) => new Date(t).toLocaleString()}
-                />
-                <Line type="monotone" dataKey="value" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="text-xs text-zinc-500 mt-2">
-            Tip: change the first symbol to switch the chart. Auto refresh: 10s.
-          </div>
-        </section>
-      </main>
+      <div style={{ marginTop: 30 }}>
+        <h3>24h Trend • BTC</h3>
+        <div style={{ border: "1px dashed #444", height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {trend.length === 0 ? (
+            <p style={{ opacity: 0.6 }}>No data yet...</p>
+          ) : (
+            <p style={{ opacity: 0.6 }}>Chart updates every 10s (live)</p>
+          )}
+        </div>
+      </div>
+
+      <p style={{ textAlign: "center", marginTop: 30, opacity: 0.6 }}>
+        Last update: {time || "—"} <br />
+        Tip: auto refresh every 10s.
+      </p>
     </div>
   );
 }
